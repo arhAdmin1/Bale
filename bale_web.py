@@ -13,7 +13,7 @@ def load_token() -> str:
         return token.strip()
     for name in ("Token.txt", "token.txt"):
         try:
-            with open(name, "r", encoding="="utf-8") as f:
+            with open(name, "r", encoding="utf-8") as f:
                 t = f.read().strip()
                 if t:
                     return t
