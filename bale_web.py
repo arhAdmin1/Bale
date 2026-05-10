@@ -151,7 +151,7 @@ def after_send_menu(mode, target_id):
 def reply_block_menu(user_id):
     return {"inline_keyboard": [
         [{"text": "✉️ پاسخ", "callback_data": f"reply_{user_id}"},
-         {"text": "🚫 بلاک", "callback_data": f"block_{user_id}""}]
+         {"text": "🚫 بلاک", "callback_data": f"block_{user_id}"}]
     ]}
 
 # ========== وضعیت‌های درون حافظه (مثل پروژه اصلی) ==========
