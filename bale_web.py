@@ -117,9 +117,9 @@ def get_user_messages(uid, limit=30):
     conn.close()
     return rows
 
-# ========== توابع ارسال به بله (با آدرس صحیح tapi.bale.ir) ==========
+# ========== توابع ارسال به بله (با آدرس صحیح tapi.bale.ai) ==========
 def send_message(chat_id, text, reply_markup=None):
-    url = f"https://tapi.bale.ir/bot{TOKEN}/sendMessage"
+    url = f"https://tapi.bale.ai/bot{TOKEN}/sendMessage"
     data = {"chat_id": chat_id, "text": text}
     if reply_markup:
         data["reply_markup"] = reply_markup
@@ -132,7 +132,7 @@ def send_message(chat_id, text, reply_markup=None):
         return None
 
 def answer_callback(callback_id, text=""):
-    url = f"https://tapi.bale.ir/bot{TOKEN}/answerCallbackQuery"
+    url = f"https://tapi.bale.ai/bot{TOKEN}/answerCallbackQuery"
     try:
         requests.post(url, json={"callback_query_id": callback_id, "text": text}, timeout=5)
     except Exception as e:
