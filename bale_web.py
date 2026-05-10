@@ -1,70 +1,72 @@
 import os
-import requests
+import logging
+import sys
 from flask import Flask, request, jsonify
+import requests
+
+# تنظیم لاگینگ برای دیدن خروجی در Render
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 TOKEN = os.environ.get("BOT_TOKEN")
 if not TOKEN:
-    # fallback به خواندن از فایل (اختیاری)
     try:
         with open("token.txt", "r") as f:
             TOKEN = f.read().strip()
     except:
-        TOKEN = None
+        pass
 
 if not TOKEN:
-    raise ValueError("BOT_TOKEN not set")
+    raise ValueError("BOT_TOKEN not found")
 
 app = Flask(__name__)
 
 def send_message(chat_id, text):
     url = f"https://api.bale.ai/v1/bot{TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text
-    }
+    payload = {"chat_id": chat_id, "text": text}
     try:
-        resp = requests.post(url, json=payload, timeout=5)
-        print(f"Sent to {chat_id}: {resp.status_code} - {resp.text}")
+        resp = requests.post(url, json=payload, timeout=10)
+        logging.info(f"Send to {chat_id}: {resp.status_code} - {resp.text[:200]}")
         return resp.json()
     except Exception as e:
-        print(f"Send error: {e}")
+        logging.error(f"Send error: {e}")
         return None
 
-@app.route("/", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        update = request.get_json()
-        print(f"Received update: {update}")  # مهم: کل درخواست را لاگ کن
+        update = request.get_json(force=True)
+        logging.info(f"WEBHOOK RECEIVED: {update}")
         
         if not update:
             return "OK", 200
         
-        # پیام معمولی
+        # پیام متنی
         if "message" in update:
             msg = update["message"]
             chat_id = msg["from"]["id"]
             text = msg.get("text", "")
+            logging.info(f"Message from {chat_id}: {text}")
             
             if text == "/start":
-                send_message(chat_id, "سلام! ربات کار می‌کند. 🎉")
+                send_message(chat_id, "✅ ربات با موفقیت کار می‌کند!")
             else:
-                send_message(chat_id, f"شما گفتید: {text}")
+                send_message(chat_id, f"شما نوشتید: {text}")
         
-        # کال‌بک (دکمه) - برای تست ساده
+        # دکمه (callback)
         elif "callback_query" in update:
             cb = update["callback_query"]
             chat_id = cb["from"]["id"]
+            logging.info(f"Callback from {chat_id}: {cb.get('data')}")
             send_message(chat_id, "دکمه فشرده شد (فعلاً پاسخ ساده)")
         
         return "OK", 200
-        
     except Exception as e:
-        print(f"Webhook error: {e}")
+        logging.error(f"Webhook exception: {e}", exc_info=True)
         return "Internal error", 500
 
 @app.route("/", methods=["GET"])
-def health():
-    return "Bot is alive", 200
+def home():
+    return "Bale bot is alive", 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
