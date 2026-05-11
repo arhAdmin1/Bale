@@ -24,7 +24,7 @@ ADMIN_IDS = {1246154254}  # 👈 آیدی خودتان را جایگزین کن�
 app = Flask(__name__)
 
 # دیتابیس (Neon PostgreSQL)
-database_url = "postgresql://neondb_owner:npg_PdDIhBH93tCQ@ep-bitter-scene-apv1qffc-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+database_url = "postgresql+psycopg://neondb_owner:npg_PdDIhBH93tCQ@ep-bitter-scene-apv1qffc-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require"
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
