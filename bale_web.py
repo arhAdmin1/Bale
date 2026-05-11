@@ -4,7 +4,7 @@ import time
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Set, Optional
+from typing import Dict, Set, Optional, Tuple
 from flask import Flask, request, jsonify
 import requests
 
@@ -20,8 +20,7 @@ if not TOKEN:
 if not TOKEN:
     raise ValueError("BOT_TOKEN not found")
 
-# آیدی ادمین (آیدی خودتان را اینجا وارد کنید)
-ADMIN_IDS = {1246154254}  # 🔁 آیدی خودتان را جایگزین کنید
+ADMIN_IDS = {1246154254}  # آیدی خودتان را جایگزین کنید
 
 # ========== دیتابیس ==========
 def get_db():
@@ -43,7 +42,8 @@ def init_db():
         receiver_id INTEGER,
         msg_type TEXT,
         content TEXT,
-        ts INTEGER
+        ts INTEGER,
+        message_id INTEGER          -- اضافه شد: شناسه پیام در بله
     )""")
     cur.execute("""CREATE TABLE IF NOT EXISTS blocked_users (
         owner_id INTEGER,
@@ -69,13 +69,23 @@ def save_user(user_id, username="", full_name=""):
     conn.commit()
     conn.close()
 
-def save_message(sender, receiver, msg_type, content=""):
+def save_message(sender, receiver, msg_type, content="", message_id=None):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("INSERT INTO messages (sender_id, receiver_id, msg_type, content, ts) VALUES (?,?,?,?,?)",
-                (sender, receiver, msg_type, content, now_ts()))
+    cur.execute("INSERT INTO messages (sender_id, receiver_id, msg_type, content, ts, message_id) VALUES (?,?,?,?,?,?)",
+                (sender, receiver, msg_type, content, now_ts(), message_id))
     conn.commit()
     conn.close()
+
+def get_message_id_by_sender_receiver(sender, receiver, msg_type='forward'):
+    """آخرین message_id ارسال شده از sender به receiver از نوع forward را برمی‌گرداند"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT message_id FROM messages WHERE sender_id=? AND receiver_id=? AND msg_type=? ORDER BY ts DESC LIMIT 1",
+                (sender, receiver, msg_type))
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
 
 def is_blocked(owner, user):
     conn = get_db()
@@ -111,22 +121,28 @@ def get_all_users():
 def get_user_messages(uid, limit=30):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT sender_id, receiver_id, msg_type, content, ts FROM messages WHERE sender_id=? OR receiver_id=? ORDER BY ts DESC LIMIT ?",
+    cur.execute("SELECT sender_id, receiver_id, msg_type, content, ts, message_id FROM messages WHERE sender_id=? OR receiver_id=? ORDER BY ts DESC LIMIT ?",
                 (uid, uid, limit))
     rows = cur.fetchall()
     conn.close()
     return rows
 
-# ========== توابع ارسال به بله (با آدرس صحیح tapi.bale.ai) ==========
-def send_message(chat_id, text, reply_markup=None):
+# ========== توابع ارسال به بله (با پشتیبانی از ریپلای) ==========
+def send_message(chat_id, text, reply_markup=None, reply_to_message_id=None):
     url = f"https://tapi.bale.ai/bot{TOKEN}/sendMessage"
     data = {"chat_id": chat_id, "text": text}
     if reply_markup:
         data["reply_markup"] = reply_markup
+    if reply_to_message_id:
+        data["reply_to_message_id"] = reply_to_message_id
     try:
         response = requests.post(url, json=data, timeout=10)
+        result = response.json()
         logging.info(f"send_message to {chat_id}: {response.status_code} - {response.text[:200]}")
-        return response.json()
+        # برگرداندن message_id پیام ارسال شده (برای استفاده در ریپلای‌های بعدی)
+        if result.get('ok') and result.get('result'):
+            return result['result'].get('message_id')
+        return None
     except Exception as e:
         logging.error(f"send_message error: {e}")
         return None
@@ -154,21 +170,24 @@ def admin_menu():
         [{"text": "🔙 منوی اصلی", "callback_data": "back_menu"}]
     ]}
 
-def after_send_menu(mode, target_id):
-    return {"inline_keyboard": [
-        [{"text": "✉️ ارسال دوباره", "callback_data": f"send_again|{mode}|{target_id}"}],
+def after_send_menu(mode, target_id, last_message_id=None):
+    """منوی بعد از ارسال پیام با گزینه ارسال دوباره"""
+    keyboard = [
+        [{"text": "✉️ ارسال دوباره", "callback_data": f"send_again|{mode}|{target_id}|{last_message_id if last_message_id else ''}"}],
         [{"text": "🔙 منوی اصلی", "callback_data": "back_menu"}]
-    ]}
+    ]
+    return {"inline_keyboard": keyboard}
 
-def reply_block_menu(user_id):
+def reply_block_menu(user_id, message_id):
+    """منوی پاسخ و بلاک با استفاده از message_id برای ریپلای"""
     return {"inline_keyboard": [
-        [{"text": "✉️ پاسخ", "callback_data": f"reply_{user_id}"},
+        [{"text": "✉️ پاسخ", "callback_data": f"reply_{user_id}_{message_id}"},
          {"text": "🚫 بلاک", "callback_data": f"block_{user_id}"}]
     ]}
 
 # ========== وضعیت‌های موقت ==========
 user_links: Dict[int, int] = {}
-reply_state: Dict[int, int] = {}
+reply_state: Dict[int, Tuple[int, int]] = {}  # (target_user_id, reply_to_message_id)
 send_direct_state: Set[int] = set()
 admin_search_state: Set[int] = set()
 admin_broadcast_state: Set[int] = set()
@@ -194,13 +213,16 @@ def webhook():
             full_name = cb["from"].get("first_name", "")
             data = cb["data"]
             cid = cb["id"]
+            message = cb.get("message", {})
+            # message_id پیامی که روی آن کلیک شده (برای ریپلای)
+            clicked_msg_id = message.get("message_id") if message else None
 
             save_user(user_id, username, full_name)
             answer_callback(cid)
 
             # منوی اصلی
             if data == "get_link":
-                bot_user = "Na8henasBot"  # 🔁 یوزرنیم ربات خود را وارد کنید
+                bot_user = "Na8henasBot"
                 link = f"https://ble.ir/{bot_user}?start={user_id}"
                 send_message(user_id, f"🔗 لینک اختصاصی شما:\n`{link}`")
                 return "OK", 200
@@ -220,9 +242,10 @@ def webhook():
             # ارسال دوباره
             if data.startswith("send_again|"):
                 parts = data.split("|")
-                if len(parts) == 3:
-                    _, mode, tid = parts
-                    target_id = int(tid)
+                if len(parts) >= 3:
+                    _, mode, target_id = parts[0], parts[1], parts[2]
+                    target_id = int(target_id)
+                    last_msg_id = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None
                     if mode == "user_link":
                         if is_blocked(target_id, user_id):
                             send_message(user_id, "⛔️ شما توسط این کاربر بلاک شده‌اید.")
@@ -234,8 +257,35 @@ def webhook():
                         if user_id not in ADMIN_IDS and user_id != owner:
                             send_message(user_id, "⛔️ دسترسی غیرمجاز.")
                         else:
-                            reply_state[user_id] = target_id
+                            # اگر last_msg_id داریم، ریپلای به آن پیام
+                            reply_state[user_id] = (target_id, last_msg_id)
                             send_message(user_id, "✉️ پاسخ خود را ارسال کنید:")
+                return "OK", 200
+
+            # پاسخ به پیام (ریپلای)
+            if data.startswith("reply_"):
+                # فرمت: reply_{user_id}_{message_id}
+                parts = data.split("_")
+                if len(parts) >= 3:
+                    target_user = int(parts[1])
+                    reply_to_msg_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+                    owner = last_owner_cache.get(target_user) or get_last_owner(target_user)
+                    if user_id not in ADMIN_IDS and user_id != owner:
+                        send_message(user_id, "⛔️ دسترسی غیرمجاز")
+                        return "OK", 200
+                    # ذخیره وضعیت پاسخ با message_id مورد نظر برای ریپلای
+                    reply_state[user_id] = (target_user, reply_to_msg_id)
+                    send_message(user_id, "✉️ پاسخ خود را بنویسید:")
+                return "OK", 200
+
+            if data.startswith("block_"):
+                target_user = int(data.split("_")[1])
+                owner = last_owner_cache.get(target_user) or get_last_owner(target_user)
+                if user_id not in ADMIN_IDS and user_id != owner:
+                    send_message(user_id, "⛔️ دسترسی غیرمجاز")
+                    return "OK", 200
+                block_user(user_id, target_user)
+                send_message(user_id, "🚫 کاربر بلاک شد.")
                 return "OK", 200
 
             # بخش ادمین
@@ -279,26 +329,6 @@ def webhook():
                 send_message(user_id, "📢 متن پیام همگانی را بفرستید:")
                 return "OK", 200
 
-            if data.startswith("reply_"):
-                target = int(data.split("_")[1])
-                owner = last_owner_cache.get(target) or get_last_owner(target)
-                if user_id not in ADMIN_IDS and user_id != owner:
-                    send_message(user_id, "⛔️ دسترسی غیرمجاز")
-                    return "OK", 200
-                reply_state[user_id] = target
-                send_message(user_id, "✉️ پاسخ خود را بنویسید:")
-                return "OK", 200
-
-            if data.startswith("block_"):
-                target = int(data.split("_")[1])
-                owner = last_owner_cache.get(target) or get_last_owner(target)
-                if user_id not in ADMIN_IDS and user_id != owner:
-                    send_message(user_id, "⛔️ دسترسی غیرمجاز")
-                    return "OK", 200
-                block_user(user_id, target)
-                send_message(user_id, "🚫 کاربر بلاک شد.")
-                return "OK", 200
-
             return "OK", 200
 
         # پردازش پیام معمولی
@@ -308,6 +338,7 @@ def webhook():
             username = msg["from"].get("username", "")
             full_name = msg["from"].get("first_name", "")
             text = msg.get("text", "")
+            message_id = msg.get("message_id")  # شناسه پیام در بله
 
             save_user(user_id, username, full_name)
 
@@ -340,7 +371,7 @@ def webhook():
                             send_message(user_id, "❌ پیامی برای این کاربر یافت نشد.")
                             return "OK", 200
                         resp = f"📜 پیام‌های کاربر {target}:\n"
-                        for s, r, t, c, ts in rows[:15]:
+                        for s, r, t, c, ts, mid in rows[:15]:
                             direction = "📤 ارسال" if s == target else "📥 دریافت"
                             dt = datetime.fromtimestamp(ts).strftime("%H:%M %Y-%m-%d")
                             resp += f"\n{direction} [{dt}] {t}: {c[:80]}"
@@ -368,18 +399,20 @@ def webhook():
                 send_direct_state.discard(user_id)
                 if text.isdigit():
                     target = int(text)
-                    reply_state[user_id] = target
+                    reply_state[user_id] = (target, None)  # ریپلای به پیام خاصی نیست
                     send_message(user_id, "✉️ پیام خود را ارسال کنید:")
                 else:
                     send_message(user_id, "❌ باید یک آیدی عددی وارد کنید.")
                 return "OK", 200
 
-            # پاسخ به پیام
+            # پاسخ به پیام (ریپلای)
             if user_id in reply_state:
-                target = reply_state.pop(user_id)
-                send_message(target, text)
-                save_message(user_id, target, "reply", text)
-                send_message(user_id, "✅ پاسخ شما ارسال شد.", reply_markup=after_send_menu("owner_reply", target))
+                target, reply_to_msg_id = reply_state.pop(user_id)
+                # ارسال پیام با ریپلای به message_id ذخیره شده
+                sent_msg_id = send_message(target, text, reply_to_message_id=reply_to_msg_id)
+                save_message(user_id, target, "reply", text, sent_msg_id)
+                # نمایش منو با ارسال دوباره (برای ادامه پاسخ)
+                send_message(user_id, "✅ پاسخ شما ارسال شد.", reply_markup=after_send_menu("owner_reply", target, sent_msg_id))
                 return "OK", 200
 
             # ارسال ناشناس از طریق لینک
@@ -396,12 +429,15 @@ def webhook():
                     user_info += f" - {full_name}"
                 user_info += f"\n\nمتن:\n{text}"
 
-                send_message(owner, user_info)
-                send_message(owner, "🔽 گزینه‌ها:", reply_markup=reply_block_menu(user_id))
+                # ارسال پیام به owner
+                sent_msg_id = send_message(owner, user_info)
+                save_message(user_id, owner, "forward", text, sent_msg_id)
+                # ذخیره message_id پیام ارسالی به owner برای ریپلای بعدی
+                # برای ارسال دکمه‌های پاسخ و بلاک
+                send_message(owner, "🔽 گزینه‌ها:", reply_markup=reply_block_menu(user_id, sent_msg_id))
 
-                save_message(user_id, owner, "forward", text)
                 last_owner_cache[user_id] = owner
-                send_message(user_id, "✅ پیام شما ارسال شد.", reply_markup=after_send_menu("user_link", owner))
+                send_message(user_id, "✅ پیام شما ارسال شد.", reply_markup=after_send_menu("user_link", owner, sent_msg_id))
                 return "OK", 200
 
         return "OK", 200
