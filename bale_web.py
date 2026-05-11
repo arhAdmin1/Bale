@@ -19,11 +19,11 @@ if not TOKEN:
 if not TOKEN:
     raise ValueError("BOT_TOKEN not found")
 
-ADMIN_IDS = {1246154254}  # آیدی خودتان را جایگزین کنید
+ADMIN_IDS = {1246154254}  # 👈 آیدی خودتان را جایگزین کنید
 
 app = Flask(__name__)
 
-# دیتابیس PostgreSQL
+# دیتابیس (Neon PostgreSQL)
 database_url = os.environ.get("DATABASE_URL")
 if not database_url:
     raise ValueError("DATABASE_URL not set")
@@ -118,11 +118,6 @@ def get_user_messages(uid, limit=30):
         ).order_by(Message.ts.desc()).limit(limit).all()
         return [(m.sender_id, m.receiver_id, m.msg_type, m.content, m.ts, m.message_id) for m in msgs]
 
-def get_last_message_id(sender, receiver, msg_type='forward'):
-    with app.app_context():
-        msg = db.session.query(Message).filter_by(sender_id=sender, receiver_id=receiver, msg_type=msg_type).order_by(Message.ts.desc()).first()
-        return msg.message_id if msg else None
-
 # ========== توابع API بله ==========
 def send_message(chat_id, text, reply_markup=None, reply_to_message_id=None):
     url = f"https://tapi.bale.ai/bot{TOKEN}/sendMessage"
@@ -134,14 +129,14 @@ def send_message(chat_id, text, reply_markup=None, reply_to_message_id=None):
     try:
         resp = requests.post(url, json=data, timeout=10)
         result = resp.json()
-        logging.info(f"send_message to {chat_id}: status {resp.status_code}, result: {result.get('ok')}")
+        logging.info(f"📤 send_message to {chat_id} | status={resp.status_code} | ok={result.get('ok')} | text={text[:50]}...")
         if result.get('ok') and result.get('result'):
             return result['result'].get('message_id')
         else:
-            logging.error(f"send_message failed: {result}")
+            logging.error(f"❌ send_message failed: {result}")
             return None
     except Exception as e:
-        logging.error(f"send_message error: {e}")
+        logging.error(f"❌ send_message error: {e}")
         return None
 
 def answer_callback(callback_id, text=""):
@@ -194,7 +189,7 @@ def webhook():
         update = request.get_json()
         if not update:
             return "OK", 200
-        logging.info(f"Webhook: {update}")
+        logging.info(f"📥 Webhook received")
 
         # -------------------- Callback Query --------------------
         if "callback_query" in update:
@@ -209,7 +204,7 @@ def webhook():
 
             # منوی اصلی
             if data == "get_link":
-                bot_user = "Na8henasBot"
+                bot_user = "Na8henasBot"   # 👈 یوزرنیم ربات خود را بگذار
                 link = f"https://ble.ir/{bot_user}?start={uid}"
                 send_message(uid, f"🔗 لینک اختصاصی:\n`{link}`")
                 return "OK", 200
@@ -245,13 +240,12 @@ def webhook():
                             send_message(uid, "✉️ پاسخ خود را بنویسید")
                 return "OK", 200
 
-            # پاسخ به پیام (ریپلای)
+            # پاسخ به پیام (ریپلای) - اصلاح شده
             if data.startswith("reply_"):
                 parts = data.split("_")
                 if len(parts) >= 3:
                     target_user = int(parts[1])
                     reply_to_msg = int(parts[2]) if parts[2].isdigit() else None
-                    # بررسی مجوز: هر دو طرف مجازند
                     reply_state[uid] = (target_user, reply_to_msg)
                     send_message(uid, "✉️ پاسخ خود را بنویسید:")
                 return "OK", 200
@@ -362,19 +356,23 @@ def webhook():
                     send_message(uid, "❌ فقط آیدی عددی")
                 return "OK", 200
 
-            # پاسخ به پیام (ریپلای)
+            # ========== پاسخ به پیام (بخش اصلاح شده) ==========
             if uid in reply_state:
                 target, reply_to_msg = reply_state.pop(uid)
-                # ارسال پاسخ به target (همان کاربر اول)
-                sent_msg_id = send_message(target, text, reply_to_message_id=reply_to_msg)
+
+                # 1) ابتدا متن پاسخ را بدون هیچ دکمه و بدون ریپلای ارسال کن (برای اطمینان از دیده شدن متن)
+                sent_msg_id = send_message(target, text)   # بدون reply_to_message_id
                 if sent_msg_id:
                     save_message(uid, target, "reply", text, sent_msg_id)
-                    # حالا برای target (کاربر اول) دکمه پاسخ ارسال کن
-                    # برای اینکه دکمه زیر همین پیام پاسخ باشد، باید از edit استفاده کنیم؛ ولی به روش ساده یک پیام دکمه جدا می‌فرستیم
+
+                    # 2) سپس یک پیام جداگانه حاوی دکمه پاسخ (برای ادامه زنجیره) بفرست
+                    #    این دکمه به کاربر target اجازه می‌دهد به این پاسخ جدید، پاسخ دهد.
                     send_message(target, "🔽 گزینه‌ها:", reply_markup=reply_block_menu(uid, sent_msg_id))
+
+                    # 3) به پاسخ‌دهنده (uid) پیام موفقیت و گزینه ارسال دوباره بده
                     send_message(uid, "✅ پاسخ ارسال شد", reply_markup=after_send_menu("owner_reply", target, sent_msg_id))
                 else:
-                    send_message(uid, "❌ ارسال پاسخ ناموفق")
+                    send_message(uid, "❌ ارسال پاسخ ناموفق بود. لطفاً دوباره تلاش کن.")
                 return "OK", 200
 
             # ارسال ناشناس از طریق لینک
@@ -402,12 +400,12 @@ def webhook():
         return "OK", 200
 
     except Exception as e:
-        logging.error(f"Webhook error: {e}", exc_info=True)
+        logging.error(f"❌ Webhook exception: {e}", exc_info=True)
         return "Internal error", 500
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Bale bot with PostgreSQL", 200
+    return "Bale bot (Neon DB + fixed reply)", 200
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
