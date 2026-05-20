@@ -19,22 +19,20 @@ import yt_dlp
 # ========== تنظیمات مستقیم (Hardcoded) ==========
 BOT_TOKEN = "1331646419:g8990tyskTERZDtqi0AnyaV5eIIqiCA6vlI"
 ADMIN_IDS = [1246154254]
-DATABASE_URL = "postgresql+psycopg2://neondb_owner:npg_PdDIhBH93tCQ@ep-bitter-scene-apv1qffc-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require"
+DATABASE_URL = "postgresql+psycopg://neondb_owner:npg_PdDIhBH93tCQ@ep-bitter-scene-apv1qffc-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require"
 # ================================================
 
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 if not RENDER_URL:
-    RENDER_URL = "https://your-app-name.onrender.com"  # در render خودکار مقدار دارد
+    RENDER_URL = "https://your-app-name.onrender.com"
 
 API_BASE = f"https://tapi.bale.ai/bot{BOT_TOKEN}"
 app = Flask(__name__)
 
-# تنظیم دیتابیس
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# مدل کاربر
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(50), unique=True, nullable=False)
@@ -60,11 +58,9 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
-# ---------- وضعیت‌های موقت ----------
 broadcast_state = {}
 youtube_state = {}
 
-# ---------- توابع کمکی ----------
 def send_message(chat_id, text, reply_markup=None):
     url = f"{API_BASE}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
@@ -109,7 +105,6 @@ def get_user(user_id):
 def all_users():
     return User.query.all()
 
-# ---------- کیبوردها ----------
 def main_menu():
     return {
         "keyboard": [
@@ -132,7 +127,6 @@ def admin_menu():
         ]
     }
 
-# ---------- توابع یوتیوب ----------
 def download_youtube_video(url, output_path):
     ydl_opts = {
         'format': 'best[height<=480]',
@@ -225,7 +219,6 @@ def process_youtube(chat_id, url, media_type):
         os.unlink(downloaded)
         send_message(chat_id, "✅ MP3 با کیفیت بالا ارسال شد.")
 
-# ---------- وب‌هوک ----------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
@@ -252,7 +245,6 @@ def webhook():
             send_message(chat_id, "⛔ شما توسط ادمین مسدود شده‌اید.")
             return "OK", 200
 
-        # کاربر عادی
         if chat_id not in ADMIN_IDS:
             if text == "/start":
                 send_message(chat_id, "به ربات خوش آمدید!", reply_markup=main_menu())
@@ -266,12 +258,10 @@ def webhook():
                 send_message(chat_id, "از منوی زیر استفاده کنید:", reply_markup=main_menu())
             return "OK", 200
 
-        # ادمین
         if text == "/start":
             send_message(chat_id, "پنل مدیریت", reply_markup=admin_menu())
             return "OK", 200
 
-        # ارسال همگانی
         if uid in broadcast_state:
             if broadcast_state[uid] == "waiting_for_message":
                 broadcast_state[uid] = text
@@ -284,7 +274,6 @@ def webhook():
                 send_message(chat_id, f"پیام شما:\n\n{text}\n\nآیا ارسال شود؟", reply_markup=markup)
             return "OK", 200
 
-        # دریافت لینک یوتیوب
         if uid in youtube_state and youtube_state[uid] == "waiting_for_link":
             youtube_regex = r'(https?://)?(www\.|m\.)?(youtube\.com|youtu\.be)/\S+'
             if re.search(youtube_regex, text):
