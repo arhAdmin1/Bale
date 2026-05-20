@@ -19,7 +19,7 @@ import yt_dlp
 # ========== تنظیمات مستقیم (Hardcoded) ==========
 BOT_TOKEN = "1331646419:g8990tyskTERZDtqi0AnyaV5eIIqiCA6vlI"
 ADMIN_IDS = [1246154254]
-DATABASE_URL = "postgresql://neondb_owner:npg_PdDIhBH93tCQ@ep-bitter-scene-apv1qffc-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require"
+DATABASE_URL = "postgresql+psycopg://neondb_owner:npg_PdDIhBH93tCQ@ep-bitter-scene-apv1qffc-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require"
 # ================================================
 
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
