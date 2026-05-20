@@ -127,17 +127,23 @@ def admin_menu():
         ]
     }
 
-# ---------- توابع دانلود یوتیوب با کوکی ----------
+# ---------- توابع دانلود یوتیوب با تنظیمات جدید (force-ipv4 + extractor_args) ----------
 def download_youtube_video(url, output_path):
     ydl_opts = {
-        'cookiefile': 'cookies.txt',   # استفاده از کوکی ذخیره شده
+        'cookiefile': 'cookies.txt',
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'format': 'best[height<=480][ext=mp4]+bestaudio[ext=mp4]/best[height<=480]',
         'outtmpl': output_path,
         'quiet': True,
         'no_warnings': True,
         'merge_output_format': 'mp4',
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}}  # شبیه‌سازی کلاینت موبایل
+        'force-ipv4': True,  # جدید: اولویت با IPv4
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],  # شبیه‌سازی کلاینت موبایل و وب
+                'skip': ['hls']   # اسکیپ استریم‌های HLS (مشکل‌زا)
+            }
+        }
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -149,19 +155,25 @@ def download_youtube_video(url, output_path):
 
 def download_youtube_mp3(url, output_path):
     ydl_opts = {
-        'cookiefile': 'cookies.txt',   # استفاده از کوکی ذخیره شده
+        'cookiefile': 'cookies.txt',
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'format': 'bestaudio/best',
         'outtmpl': output_path,
         'quiet': True,
         'no_warnings': True,
+        'force-ipv4': True,  # جدید
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+                'skip': ['hls']
+            }
+        },
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '0',
         }],
         'embedthumbnail': True,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
