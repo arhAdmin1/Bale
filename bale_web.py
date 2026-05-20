@@ -127,13 +127,17 @@ def admin_menu():
         ]
     }
 
+# ---------- توابع دانلود یوتیوب با کوکی ----------
 def download_youtube_video(url, output_path):
     ydl_opts = {
-        'format': 'best[height<=480]',
+        'cookiefile': 'cookies.txt',   # استفاده از کوکی ذخیره شده
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'format': 'best[height<=480][ext=mp4]+bestaudio[ext=mp4]/best[height<=480]',
         'outtmpl': output_path,
         'quiet': True,
         'no_warnings': True,
-        'merge_output_format': 'mp4'
+        'merge_output_format': 'mp4',
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}}  # شبیه‌سازی کلاینت موبایل
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -145,6 +149,8 @@ def download_youtube_video(url, output_path):
 
 def download_youtube_mp3(url, output_path):
     ydl_opts = {
+        'cookiefile': 'cookies.txt',   # استفاده از کوکی ذخیره شده
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'format': 'bestaudio/best',
         'outtmpl': output_path,
         'quiet': True,
@@ -155,6 +161,7 @@ def download_youtube_mp3(url, output_path):
             'preferredquality': '0',
         }],
         'embedthumbnail': True,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -385,9 +392,13 @@ def set_webhook():
         print(f"setWebhook error: {e}")
 
 if __name__ == "__main__":
+    # بررسی وجود ffmpeg
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         print("⚠️ ffmpeg یا ffprobe نصب نیست. لطفاً Dockerfile را بررسی کنید.")
         sys.exit(1)
+    # بررسی وجود فایل کوکی (اختیاری)
+    if not os.path.exists("cookies.txt"):
+        print("⚠️ فایل cookies.txt یافت نشد. ممکن است دانلود با خطا مواجه شود.")
     set_webhook()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
